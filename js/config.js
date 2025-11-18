@@ -58,13 +58,13 @@ const CONFIG = {
   AUDIO: {
     fftSize: 2048,
     smoothingTimeConstant: 0.8,
-    // dBFS to dB SPL mapping (adjusted for more accurate readings)
-    // Phone microphones typically max out around -30 dBFS for normal sound
-    // More conservative mapping to prevent over-reporting
+    // dBFS to dB SPL mapping (heavily adjusted for accurate low readings)
+    // Very conservative mapping to prevent over-reporting
+    // Most phone mics need -50 dBFS or higher for truly loud sounds
     minDBFS: -100,
-    maxDBFS: -30,  // Even more conservative for phone microphones
+    maxDBFS: -50,  // Very conservative - only very loud sounds hit upper range
     minSPL: 30,
-    maxSPL: 95     // Adjusted upper limit for typical environments
+    maxSPL: 120    // Full range up to 120dB for very loud sounds
   },
 
   // Warning Thresholds

@@ -498,41 +498,44 @@ body.noise-danger::before {
 /* ============================================
    METRICS SECTION
    ============================================ */
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--spacing-sm);
-}
-
-.metric-card {
+/* Compact metrics in single row */
+.metrics-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
   background: var(--color-card-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: var(--spacing-md);
-  text-align: center;
-  transition: all var(--transition-normal);
+  padding: var(--spacing-sm) var(--spacing-md);
+  gap: var(--spacing-sm);
 }
 
-.metric-card:hover {
-  background: var(--color-glass-bg);
-  transform: translateY(-2px);
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
 }
 
-.metric-icon {
-  font-size: var(--font-xl);
-  margin-bottom: var(--spacing-xs);
-}
-
-.metric-label {
+.metric-label-compact {
   font-size: var(--font-xs);
   color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-xs);
+  white-space: nowrap;
 }
 
-.metric-value {
-  font-size: var(--font-lg);
+.metric-value-compact {
+  font-size: var(--font-md);
   font-weight: 600;
   color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+.metric-divider {
+  width: 1px;
+  height: 40px;
+  background: var(--color-border);
+  opacity: 0.5;
 }
 
 /* ============================================
@@ -737,25 +740,26 @@ body.noise-danger::before {
 .privacy-card {
   background: var(--color-card-bg);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
   text-align: center;
 }
 
 .privacy-icon {
-  font-size: 48px;
-  margin-bottom: var(--spacing-md);
+  font-size: 32px;
+  margin-bottom: var(--spacing-xs);
 }
 
 .privacy-card h3 {
-  font-size: var(--font-lg);
+  font-size: var(--font-md);
   font-weight: 600;
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
 }
 
 .privacy-card p {
   color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+  font-size: var(--font-sm);
 }
 
 /* ============================================
@@ -1305,8 +1309,9 @@ input[type="range"]::-moz-range-thumb {
   }
 
   .db-value {
-    font-size: 56px;
-    letter-spacing: -1px;
+    font-size: 48px;
+    letter-spacing: 0px;
+    padding: 0 8px;
   }
 
   .db-unit {
@@ -1322,28 +1327,25 @@ input[type="range"]::-moz-range-thumb {
     margin-top: var(--spacing-md);
   }
 
-  /* Compact metrics - show in row for mobile */
-  .metrics-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--spacing-xs);
+  /* Compact metrics on mobile */
+  .metrics-compact {
+    padding: 10px var(--spacing-sm);
   }
 
-  .metric-card {
-    padding: var(--spacing-sm) var(--spacing-xs);
-  }
-
-  .metric-icon {
-    font-size: var(--font-md);
-    margin-bottom: 4px;
-  }
-
-  .metric-label {
+  .metric-label-compact {
     font-size: 10px;
-    margin-bottom: 4px;
   }
 
-  .metric-value {
+  .metric-value-compact {
     font-size: var(--font-sm);
+  }
+
+  .metric-divider {
+    height: 30px;
+  }
+
+  .metrics-section {
+    padding: var(--spacing-sm) var(--spacing-md);
   }
 
   /* Compact dose section */

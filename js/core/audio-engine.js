@@ -189,12 +189,12 @@ class AudioEngine {
 
   convertToSPL(dbfs) {
     // Hardcoded fallback values in case CONFIG is not available
-    // Adjusted for more conservative (lower) readings that match real-world better
+    // Very conservative mapping to prevent over-reporting ambient noise
     const FALLBACK_VALUES = {
       minDBFS: -100,
-      maxDBFS: -30,  // Even more conservative to prevent over-reporting
+      maxDBFS: -50,  // Very conservative - only very loud sounds hit upper range
       minSPL: 30,
-      maxSPL: 95     // Adjusted for typical environments
+      maxSPL: 120    // Full range up to 120dB for very loud sounds
     };
 
     // Try to get values from CONFIG, fallback to hardcoded if not available
