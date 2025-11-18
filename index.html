@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="description" content="Professional noise dosimeter - Track your daily noise exposure and protect your hearing">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Noise Dosimeter">
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔊</text></svg>">
+
+    <title>Noise Dosimeter</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Fixed Header with Monitoring Button -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1>Noise Dosimeter</h1>
+                <button id="toggleMonitoringBtn" class="monitoring-toggle-btn-header" title="Start/Stop Monitoring">
+                    <span class="btn-icon-header" id="monitoringBtnIcon">▶</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Permission Banner -->
+        <div id="permissionBanner" class="permission-banner hidden">
+            <div class="banner-content">
+                <p>📢 Microphone access required for noise monitoring</p>
+                <button id="requestPermissionsBtn" class="btn-primary">Enable Access</button>
+            </div>
+        </div>
+
+        <!-- Main Scrollable Content -->
+        <main class="main-scroll-container">
+
+            <!-- SECTION 1: Hero - Live Noise Reading -->
+            <section class="section hero-section">
+                <div class="monitoring-indicator">
+                    <div id="statusDot" class="status-dot"></div>
+                    <span id="statusText">Ready to monitor</span>
+                </div>
+
+                <div class="live-db-reading">
+                    <div class="db-value-container">
+                        <span id="liveDbValue" class="db-value">--</span>
+                        <span class="db-unit">dB</span>
+                    </div>
+                    <div id="noiseLevelLabel" class="noise-level-label">Initializing...</div>
+                </div>
+
+                <!-- Waveform Visualization -->
+                <canvas id="waveformCanvas" class="waveform-canvas"></canvas>
+            </section>
+
+            <!-- SECTION 2: Daily Dose Circle -->
+            <section class="section dose-section">
+                <h2 class="section-title">Daily Noise Dose</h2>
+
+                <div class="dose-circle-container">
+                    <svg id="doseCircleSvg" viewBox="0 0 300 300" class="dose-circle-svg">
+                        <defs>
+                            <linearGradient id="doseGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" id="gradStart" style="stop-color:#10b981;stop-opacity:1" />
+                                <stop offset="50%" id="gradMid" style="stop-color:#f59e0b;stop-opacity:1" />
+                                <stop offset="100%" id="gradEnd" style="stop-color:#ef4444;stop-opacity:1" />
+                            </linearGradient>
+                            <filter id="glow">
+                                <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                                <feMerge>
+                                    <feMergeNode in="coloredBlur"/>
+                                    <feMergeNode in="SourceGraphic"/>
+                                </feMerge>
+                            </filter>
+                            <filter id="shadow">
+                                <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.5"/>
+                            </filter>
+                        </defs>
+
+                        <!-- Background circle -->
+                        <circle cx="150" cy="150" r="120" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+
+                        <!-- Dose fill circle (clips to show radial fill) -->
+                        <g id="doseCircleGroup">
+                            <circle cx="150" cy="150" r="0" fill="url(#doseGradient)"
+                                    filter="url(#shadow)" id="doseFillCircle" class="dose-fill-circle"/>
+                        </g>
+
+                        <!-- Center text -->
+                        <text x="150" y="140" text-anchor="middle" class="dose-percentage-text" id="dosePercentText">0%</text>
+                        <text x="150" y="170" text-anchor="middle" class="dose-label-text">of safe limit</text>
+                    </svg>
+                </div>
+
+                <p class="dose-explainer">100% = NIOSH safe daily limit (8 hours at 85 dB)</p>
+            </section>
+
+            <!-- SECTION 3: Key Metrics -->
+            <section class="section metrics-section">
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-icon">⏱️</div>
+                        <div class="metric-label">Exposure Time</div>
+                        <div id="exposureTime" class="metric-value">0h 0m</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon">⏳</div>
+                        <div class="metric-label">Safe Time Left</div>
+                        <div id="safeTimeRemaining" class="metric-value">8h 0m</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon">📊</div>
+                        <div class="metric-label">Peak Level</div>
+                        <div id="peakLevel" class="metric-value">-- dB</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 4: Monitoring Status (button moved to header) -->
+            <section class="section control-section" style="display: none;">
+                <!-- Monitoring button now in header -->
+            </section>
+
+            <!-- Pocket Mode Indicator -->
+            <div id="pocketModeIndicator" class="pocket-mode-indicator hidden">
+                <span class="pocket-icon">📱</span>
+                <span class="pocket-text">Pocket mode detected - Adjusting by <span id="pocketAdjustment">-10</span> dB</span>
+            </div>
+
+            <!-- SECTION 5: Historical Data -->
+            <section class="section history-section">
+                <div class="history-header">
+                    <h2 class="section-title">Exposure History</h2>
+                    <div class="period-tabs">
+                        <button class="tab-btn active" data-period="day">Day</button>
+                        <button class="tab-btn" data-period="week">Week</button>
+                        <button class="tab-btn" data-period="month">Month</button>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="historyChart" class="history-chart"></canvas>
+                </div>
+
+                <div class="history-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Average Daily Dose</span>
+                        <span id="avgDose" class="stat-value">--%</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Days Over 100%</span>
+                        <span id="daysOverLimit" class="stat-value">--</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Trend</span>
+                        <span id="doseTrend" class="stat-value">--</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 7: Privacy Assurance -->
+            <section class="section privacy-assurance-section">
+                <div class="privacy-card">
+                    <div class="privacy-icon">🔒</div>
+                    <h3>Your Data Stays on Your Device</h3>
+                    <p>No cloud, no tracking, no sharing. Complete privacy.</p>
+                    <button id="learnPrivacyBtn" class="link-btn">Learn more about privacy →</button>
+                </div>
+            </section>
+
+            <!-- SECTION 8: Settings -->
+            <section class="section settings-section">
+                <h2 class="section-title">Settings</h2>
+
+                <!-- Calibration -->
+                <div class="settings-group">
+                    <button class="settings-header" id="calibrationHeader">
+                        <span class="settings-title">🎯 Calibration</span>
+                        <span class="expand-icon">›</span>
+                    </button>
+                    <div class="settings-content hidden" id="calibrationContent">
+                        <p class="settings-description">Improve accuracy by calibrating your microphone</p>
+                        <button id="startCalibrationBtn" class="btn-secondary">Start Calibration Wizard</button>
+
+                        <div class="manual-calibration">
+                            <label for="calibrationSlider">Manual Adjustment</label>
+                            <div class="slider-container">
+                                <input type="range" id="calibrationSlider" min="-20" max="20" step="0.5" value="0">
+                                <span id="calibrationValue" class="slider-value">0 dB</span>
+                            </div>
+                            <button id="resetCalibrationBtn" class="link-btn">Reset to default</button>
+                        </div>
+
+                        <div class="calibration-status">
+                            <span id="calibrationStatus">Not calibrated</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pocket Detection -->
+                <div class="settings-group">
+                    <button class="settings-header" id="pocketHeader">
+                        <span class="settings-title">📱 Pocket Detection</span>
+                        <span class="expand-icon">›</span>
+                    </button>
+                    <div class="settings-content hidden" id="pocketContent">
+                        <p class="settings-description">Auto-adjust readings when phone is in pocket/bag</p>
+
+                        <div class="toggle-setting">
+                            <label for="pocketToggle">Enable Auto-Detection</label>
+                            <input type="checkbox" id="pocketToggle" class="toggle-input" checked>
+                        </div>
+
+                        <div class="slider-container">
+                            <label for="pocketCorrectionSlider">Pocket Correction</label>
+                            <input type="range" id="pocketCorrectionSlider" min="-20" max="-5" step="1" value="-10">
+                            <span id="pocketCorrectionValue" class="slider-value">-10 dB</span>
+                        </div>
+
+                        <div class="info-box">
+                            <strong>Why -10 dB?</strong><br>
+                            Typical fabric and pocket materials attenuate sound by approximately 10 dB. This default ensures accurate readings when your phone is in your pocket or bag.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reset Time -->
+                <div class="settings-group">
+                    <button class="settings-header" id="resetTimeHeader">
+                        <span class="settings-title">🕐 Daily Reset Time</span>
+                        <span class="expand-icon">›</span>
+                    </button>
+                    <div class="settings-content hidden" id="resetTimeContent">
+                        <p class="settings-description">Choose when your daily dose resets</p>
+
+                        <div class="preset-buttons">
+                            <button class="preset-btn active" data-time="00:00">Midnight</button>
+                            <button class="preset-btn" data-time="06:00">6 AM</button>
+                            <button class="preset-btn" data-time="custom">Custom</button>
+                        </div>
+
+                        <div class="time-picker-container hidden" id="customTimePickerContainer">
+                            <input type="time" id="resetTimePicker" value="00:00">
+                        </div>
+
+                        <button id="manualResetBtn" class="btn-danger" style="margin-top: 20px;">Reset Daily Dose Now</button>
+                    </div>
+                </div>
+
+                <!-- Other Settings -->
+                <div class="settings-group">
+                    <button class="settings-header" id="otherSettingsHeader">
+                        <span class="settings-title">⚙️ Other Settings</span>
+                        <span class="expand-icon">›</span>
+                    </button>
+                    <div class="settings-content hidden" id="otherSettingsContent">
+                        <div class="toggle-setting">
+                            <label for="hapticsToggle">Haptic Feedback</label>
+                            <input type="checkbox" id="hapticsToggle" class="toggle-input" checked>
+                        </div>
+
+                        <div class="toggle-setting">
+                            <label for="warningsToggle">Audio Warnings</label>
+                            <input type="checkbox" id="warningsToggle" class="toggle-input" checked>
+                        </div>
+
+                        <div class="toggle-setting">
+                            <label for="notificationsToggle">Push Notifications</label>
+                            <input type="checkbox" id="notificationsToggle" class="toggle-input" checked>
+                        </div>
+
+                        <div class="data-management">
+                            <button id="exportDataBtn" class="btn-secondary">📥 Export Data</button>
+                            <button id="clearDataBtn" class="btn-danger">🗑️ Clear All Data</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 9: Learn More -->
+            <section class="section learn-more-section">
+                <h2 class="section-title">Learn More</h2>
+
+                <div class="accordion">
+                    <div class="accordion-item">
+                        <button class="accordion-header">
+                            <span>How does noise damage hearing?</span>
+                            <span class="accordion-icon">›</span>
+                        </button>
+                        <div class="accordion-content hidden" id="learnHearing"></div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <button class="accordion-header">
+                            <span>What is NIOSH dosimetry?</span>
+                            <span class="accordion-icon">›</span>
+                        </button>
+                        <div class="accordion-content hidden" id="learnNiosh"></div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <button class="accordion-header">
+                            <span>What is 100%?</span>
+                            <span class="accordion-icon">›</span>
+                        </button>
+                        <div class="accordion-content hidden" id="learn100Percent">
+                            <p style="margin-bottom: 20px; opacity: 0.9;">100% represents the NIOSH recommended safe daily exposure limit. Here are the safe exposure times at different noise levels:</p>
+                            <div class="equivalents-table">
+                                <div class="equiv-row">
+                                    <div class="equiv-db">85 dB</div>
+                                    <div class="equiv-bar" style="width: 100%"></div>
+                                    <div class="equiv-time">8 hours</div>
+                                </div>
+                                <div class="equiv-row">
+                                    <div class="equiv-db">88 dB</div>
+                                    <div class="equiv-bar" style="width: 50%"></div>
+                                    <div class="equiv-time">4 hours</div>
+                                </div>
+                                <div class="equiv-row">
+                                    <div class="equiv-db">91 dB</div>
+                                    <div class="equiv-bar" style="width: 25%"></div>
+                                    <div class="equiv-time">2 hours</div>
+                                </div>
+                                <div class="equiv-row">
+                                    <div class="equiv-db">94 dB</div>
+                                    <div class="equiv-bar" style="width: 12.5%"></div>
+                                    <div class="equiv-time">1 hour</div>
+                                </div>
+                                <div class="equiv-row">
+                                    <div class="equiv-db">97 dB</div>
+                                    <div class="equiv-bar" style="width: 6.25%"></div>
+                                    <div class="equiv-time">30 min</div>
+                                </div>
+                                <div class="equiv-row">
+                                    <div class="equiv-db">100 dB</div>
+                                    <div class="equiv-bar" style="width: 3.125%"></div>
+                                    <div class="equiv-time">15 min</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <button class="accordion-header">
+                            <span>Understanding your dose</span>
+                            <span class="accordion-icon">›</span>
+                        </button>
+                        <div class="accordion-content hidden" id="learnDose"></div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <button class="accordion-header">
+                            <span>Safe listening practices</span>
+                            <span class="accordion-icon">›</span>
+                        </button>
+                        <div class="accordion-content hidden" id="learnSafe"></div>
+                    </div>
+
+                    <div class="accordion-item">
+                        <button class="accordion-header">
+                            <span>Scientific references</span>
+                            <span class="accordion-icon">›</span>
+                        </button>
+                        <div class="accordion-content hidden" id="learnReferences"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 10: Coming Soon -->
+            <section class="section coming-soon-section">
+                <h2 class="section-title">Coming Soon</h2>
+                <div class="coming-soon-grid">
+                    <div class="coming-soon-item">
+                        <div class="coming-soon-icon">🌍</div>
+                        <div class="coming-soon-title">Context Awareness</div>
+                        <div class="coming-soon-desc">Detect office, commute, outdoor environments</div>
+                    </div>
+                    <div class="coming-soon-item">
+                        <div class="coming-soon-icon">🎧</div>
+                        <div class="coming-soon-title">ANC Integration</div>
+                        <div class="coming-soon-desc">Control noise-cancelling headphones</div>
+                    </div>
+                    <div class="coming-soon-item">
+                        <div class="coming-soon-icon">💡</div>
+                        <div class="coming-soon-title">Smart Recommendations</div>
+                        <div class="coming-soon-desc">Personalized hearing protection tips</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Footer -->
+            <footer class="app-footer">
+                <p>Noise Dosimeter v2.0</p>
+                <p class="footer-small">Built for hearing health protection</p>
+                <p class="footer-small" style="margin-top: 12px; opacity: 0.6;">
+                    Pranav J Deshpande &middot; 2022B3A71204G<br>
+                    <span style="font-style: italic;">In common parlance "PJD"</span>
+                </p>
+            </footer>
+
+        </main>
+
+        <!-- Modals -->
+
+        <!-- Calibration Wizard Modal -->
+        <div id="calibrationModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Calibration Wizard</h2>
+                    <button class="modal-close" id="closeCalibrationModal">✕</button>
+                </div>
+                <div class="modal-body" id="calibrationWizardContent">
+                    <!-- Wizard steps will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Privacy Modal -->
+        <div id="privacyModal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Privacy & Data Protection</h2>
+                    <button class="modal-close" id="closePrivacyModal">✕</button>
+                </div>
+                <div class="modal-body" id="privacyContent"></div>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="toast hidden">
+            <span id="toastMessage"></span>
+        </div>
+
+    </div>
+
+    <!-- Configuration -->
+    <script src="js/config.js"></script>
+
+    <!-- Core Engines -->
+    <script src="js/core/storage-engine.js"></script>
+    <script src="js/core/dosimetry-engine.js"></script>
+    <script src="js/core/audio-engine.js"></script>
+
+    <!-- Sensors -->
+    <script src="js/sensors/proximity.js"></script>
+    <script src="js/sensors/ambient-light.js"></script>
+
+    <!-- UI Components -->
+    <script src="js/ui/dose-circle.js"></script>
+    <script src="js/ui/live-meter.js"></script>
+    <script src="js/ui/charts.js"></script>
+    <script src="js/ui/animations.js"></script>
+
+    <!-- Features -->
+    <script src="js/features/calibration.js"></script>
+    <script src="js/features/warnings.js"></script>
+    <script src="js/features/haptics.js"></script>
+    <script src="js/features/privacy.js"></script>
+    <script src="js/features/learn-more.js"></script>
+
+    <!-- Main App -->
+    <script src="js/app.js"></script>
+</body>
+</html>
