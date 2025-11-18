@@ -122,8 +122,8 @@ class AudioProcessor {
     // dBFS range is -Infinity to 0
     let dbfs = 20 * Math.log10(rms);
 
-    // Clamp to reasonable range
-    dbfs = Math.max(-60, Math.min(0, dbfs));
+    // Clamp to reasonable range for quiet sounds, but allow loud sounds to exceed
+    dbfs = Math.max(-60, dbfs);
 
     // Estimate dB SPL
     // This is an approximation and should be calibrated for accuracy
@@ -157,17 +157,17 @@ class AudioProcessor {
    * This is a simplified conversion and should be calibrated
    */
   convertToSPL(dbfs) {
-    // Map dBFS (-60 to 0) to SPL (30 to 120)
-    // This is a linear mapping and should be refined with calibration
-    const minDBFS = -60;
+    // Map dBFS (-50 to 0) to SPL (35 to 120)
+    // Adjusted for more realistic readings that match expectations
+    const minDBFS = -50;  // Narrower range = more sensitive
     const maxDBFS = 0;
-    const minSPL = 30;
+    const minSPL = 35;    // Higher baseline for realistic quiet environments
     const maxSPL = 120;
 
     const normalized = (dbfs - minDBFS) / (maxDBFS - minDBFS);
     const spl = minSPL + normalized * (maxSPL - minSPL);
 
-    return Math.max(minSPL, Math.min(maxSPL, spl));
+    return spl;
   }
 
   /**

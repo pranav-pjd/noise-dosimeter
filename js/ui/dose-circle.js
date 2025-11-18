@@ -1,15 +1,18 @@
 /**
  * Dose Circle UI Component
- * Radial fill animation from center
+ * Filled pie chart that sweeps clockwise from top (12 o'clock)
  */
 
 class DoseCircle {
   constructor() {
-    this.circle = document.getElementById('doseFillCircle');
+    this.svg = document.getElementById('doseCircleSvg');
+    this.path = document.getElementById('doseFillPath');
     this.percentText = document.getElementById('dosePercentText');
-    this.maxRadius = 120;
-    this.currentRadius = 0;
-    this.targetRadius = 0;
+    this.centerX = 150;
+    this.centerY = 150;
+    this.radius = 120;
+    this.currentPercent = 0;
+    this.targetPercent = 0;
     this.animationFrame = null;
 
     // Start animation loop
@@ -18,45 +21,78 @@ class DoseCircle {
 
   update(percentage) {
     // Clamp to 0-200%
-    const percent = Math.max(0, Math.min(200, percentage));
+    this.targetPercent = Math.max(0, Math.min(200, percentage));
 
-    // Calculate target radius
-    this.targetRadius = (percent / 100) * this.maxRadius;
+    // Update text
+    this.percentText.textContent = `${Math.round(this.targetPercent)}%`;
 
-    // Update text with smooth counting
-    this.percentText.textContent = `${Math.round(percent)}%`;
-
-    // Change color based on level
+    // Change gradient color based on level
     const gradStart = document.getElementById('gradStart');
     if (gradStart) {
-      if (percent < 50) {
+      if (this.targetPercent < 50) {
         gradStart.style.stopColor = '#10b981';
-      } else if (percent < 100) {
+      } else if (this.targetPercent < 100) {
         gradStart.style.stopColor = '#f59e0b';
       } else {
         gradStart.style.stopColor = '#ef4444';
       }
     }
+  }
 
-    // Add monitoring class for breathing animation
-    if (app && app.isMonitoring) {
-      this.circle.classList.add('monitoring');
-    } else {
-      this.circle.classList.remove('monitoring');
-    }
+  /**
+   * Create SVG path for pie slice that sweeps clockwise from top
+   */
+  createPiePath(percent) {
+    if (percent <= 0) return '';
+    
+    // Clamp to max 200% (2 full circles)
+    const clampedPercent = Math.min(200, percent);
+    
+    // Convert percentage to angle (0% = top, 100% = full circle)
+    // Start at -90 degrees (top) and go clockwise
+    const angle = (clampedPercent / 100) * 360;
+    const radians = (angle * Math.PI) / 180;
+    
+    // Calculate end point of the arc
+    // Start from top (90 degrees in standard coords = -90 in SVG)
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + radians;
+    
+    const x = this.centerX + this.radius * Math.cos(endAngle);
+    const y = this.centerY + this.radius * Math.sin(endAngle);
+    
+    // Large arc flag: 1 if angle > 180 degrees
+    const largeArcFlag = angle > 180 ? 1 : 0;
+    
+    // Create path:
+    // M = move to center
+    // L = line to start point (top)
+    // A = arc to end point
+    // Z = close path back to center
+    const path = [
+      `M ${this.centerX} ${this.centerY}`,
+      `L ${this.centerX} ${this.centerY - this.radius}`,
+      `A ${this.radius} ${this.radius} 0 ${largeArcFlag} 1 ${x} ${y}`,
+      'Z'
+    ].join(' ');
+    
+    return path;
   }
 
   animate() {
     // Smooth interpolation towards target
-    const delta = this.targetRadius - this.currentRadius;
+    const delta = this.targetPercent - this.currentPercent;
     const step = delta * 0.1; // Smooth easing
 
     if (Math.abs(delta) > 0.1) {
-      this.currentRadius += step;
-      this.circle.setAttribute('r', this.currentRadius);
+      this.currentPercent += step;
     } else {
-      this.currentRadius = this.targetRadius;
-      this.circle.setAttribute('r', this.currentRadius);
+      this.currentPercent = this.targetPercent;
+    }
+
+    // Update the pie path
+    if (this.path) {
+      this.path.setAttribute('d', this.createPiePath(this.currentPercent));
     }
 
     // Continue animation loop

@@ -133,30 +133,38 @@ class AudioEngine {
         dbSPL += this.pocketCorrection;
       }
 
+      // CRITICAL: Clamp dbSPL to valid range BEFORE smoothing
+      dbSPL = Math.max(30, Math.min(120, dbSPL));
+
       // Validate dbSPL before using it
       if (!isFinite(dbSPL) || isNaN(dbSPL)) {
         console.error('Invalid dbSPL after corrections:', dbSPL);
-        dbSPL = 70; // Fallback to reasonable ambient level
+        dbSPL = 50; // Fallback to reasonable ambient level
       }
 
       // Validate smoothedLevel before using it
       if (!isFinite(this.smoothedLevel) || isNaN(this.smoothedLevel)) {
-        console.warn('smoothedLevel was NaN, resetting to 70');
-        this.smoothedLevel = 70;
+        console.warn('smoothedLevel was NaN, resetting to 50');
+        this.smoothedLevel = 50;
       }
 
-      // Smooth for display
-      this.smoothedLevel = this.smoothingFactor * this.smoothedLevel +
-                           (1 - this.smoothingFactor) * dbSPL;
+      // Smooth for display with reduced smoothing factor for faster response
+      this.smoothedLevel = 0.7 * this.smoothedLevel + 0.3 * dbSPL;
+
+      // CRITICAL: Clamp smoothed level to prevent accumulation
+      this.smoothedLevel = Math.max(30, Math.min(120, this.smoothedLevel));
 
       this.currentLevel = Math.round(this.smoothedLevel);
 
-      // Final validation
+      // Final validation and clamping
       if (!isFinite(this.currentLevel) || isNaN(this.currentLevel)) {
         console.error('Invalid currentLevel calculated:', this.currentLevel, 'rms:', rms, 'dbfs:', dbfs, 'dbSPL:', dbSPL);
-        this.currentLevel = 70; // Fallback
-        this.smoothedLevel = 70; // Reset smoothed level too
+        this.currentLevel = 50; // Fallback
+        this.smoothedLevel = 50; // Reset smoothed level too
       }
+
+      // Extra safety clamp
+      this.currentLevel = Math.max(30, Math.min(120, this.currentLevel));
 
       // Track peak
       if (this.currentLevel > this.peakLevel) {

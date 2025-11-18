@@ -84,19 +84,14 @@
                         <!-- Background circle -->
                         <circle cx="150" cy="150" r="120" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
 
-                        <!-- Dose fill circle (clips to show radial fill) -->
-                        <g id="doseCircleGroup">
-                            <circle cx="150" cy="150" r="0" fill="url(#doseGradient)"
-                                    filter="url(#shadow)" id="doseFillCircle" class="dose-fill-circle"/>
-                        </g>
+                        <!-- Dose fill path (sweeps clockwise from top like a pie chart) -->
+                        <path id="doseFillPath" d="" fill="url(#doseGradient)" filter="url(#shadow)"/>
 
                         <!-- Center text -->
                         <text x="150" y="140" text-anchor="middle" class="dose-percentage-text" id="dosePercentText">0%</text>
                         <text x="150" y="170" text-anchor="middle" class="dose-label-text">of safe limit</text>
                     </svg>
                 </div>
-
-                <p class="dose-explainer">100% = NIOSH safe daily limit (8 hours at 85 dB)</p>
             </section>
 
             <!-- SECTION 3: Key Metrics - Compact Single Row -->
@@ -393,8 +388,7 @@
 
             <!-- Footer -->
             <footer class="app-footer">
-                <p>Noise Dosimeter v2.0</p>
-                <p class="footer-small">Built for hearing health protection</p>
+                <p>Noise Dosimeter</p>
                 <p class="footer-small" style="margin-top: 12px; opacity: 0.6;">
                     Pranav J Deshpande &middot; 2022B3A71204G<br>
                     <span style="font-style: italic;">In common parlance "PJD"</span>
