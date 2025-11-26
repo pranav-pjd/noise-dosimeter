@@ -57,13 +57,21 @@ const CONFIG = {
   // Audio Processing
   AUDIO: {
     fftSize: 2048,
-    smoothingTimeConstant: 0.8,
-    // dBFS to dB SPL mapping - adjusted for more realistic readings
-    // Narrower dBFS range = more sensitive microphone readings
-    minDBFS: -50,
-    maxDBFS: 0,
-    minSPL: 35,     // Higher baseline for realistic quiet environments
-    maxSPL: 120     // Full range up to 120dB for very loud sounds
+    smoothingTimeConstant: 0.0,  // Disable built-in smoothing, we'll do our own
+    // NIOSH-accurate dBFS to dB SPL mapping
+    // Conservative mapping to prevent over-reading
+    minDBFS: -60,    // Wider range for better resolution
+    maxDBFS: -10,    // Conservative upper limit
+    minSPL: 30,      // Realistic quiet baseline
+    maxSPL: 100,     // Conservative max for typical environments
+    // Time-weighting (SLOW mode = 1 second averaging per NIOSH standards)
+    slowTimeConstant: 1000,  // 1000ms = 1 second SLOW response
+    fastTimeConstant: 125,   // 125ms FAST response (for future use)
+    // A-weighting approximation
+    aWeightingEnabled: true,
+    // Outlier rejection
+    outlierRejection: true,
+    outlierThreshold: 2.0  // Standard deviations
   },
 
   // Warning Thresholds

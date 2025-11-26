@@ -9,6 +9,7 @@ class AudioEngine {
     this.analyser = null;
     this.microphone = null;
     this.dataArray = null;
+    this.frequencyData = null;
     this.isActive = false;
 
     // Calibration
@@ -18,15 +19,19 @@ class AudioEngine {
 
     // Current readings
     this.currentLevel = 0;
-    this.smoothedLevel = 70;
+    this.smoothedLevel = 50;
     this.peakLevel = 0;
 
     // Callbacks
     this.onLevelUpdate = null;
     this.onError = null;
 
-    // Smoothing
-    this.smoothingFactor = 0.8;
+    // NIOSH SLOW mode time-weighting (1 second averaging)
+    this.sampleBuffer = [];
+    this.maxBufferSize = 10; // 10 samples at 10Hz = 1 second
+
+    // Exponential moving average for display smoothing
+    this.displaySmoothing = 0.3; // Lower = smoother, Higher = more responsive
   }
 
   async initialize() {
@@ -51,7 +56,8 @@ class AudioEngine {
       this.analyser.smoothingTimeConstant = CONFIG.AUDIO.smoothingTimeConstant;
 
       this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-      console.log('Data array created, length:', this.dataArray.length);
+      this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
+      console.log('Data arrays created, length:', this.dataArray.length);
 
       this.microphone = this.audioContext.createMediaStreamSource(stream);
       this.microphone.connect(this.analyser);
@@ -79,7 +85,9 @@ class AudioEngine {
     console.log('Starting audio monitoring...');
     this.isActive = true;
     this.peakLevel = 0;
-    this.currentLevel = 50; // Start with a valid value
+    this.currentLevel = 50;
+    this.smoothedLevel = 50;
+    this.sampleBuffer = []; // Clear sample buffer for fresh start
 
     // Display update loop (10 Hz)
     this.displayInterval = setInterval(() => {
@@ -106,69 +114,71 @@ class AudioEngine {
     }
 
     try {
-      // Get time domain data
+      // Get both time domain and frequency domain data
       this.analyser.getByteTimeDomainData(this.dataArray);
+      this.analyser.getByteFrequencyData(this.frequencyData);
 
-      // Calculate RMS
-      let sum = 0;
+      // Calculate RMS from time domain
+      let sumSquares = 0;
       for (let i = 0; i < this.dataArray.length; i++) {
         const normalized = (this.dataArray[i] - 128) / 128;
-        sum += normalized * normalized;
+        sumSquares += normalized * normalized;
       }
-      const rms = Math.sqrt(sum / this.dataArray.length);
+      let rms = Math.sqrt(sumSquares / this.dataArray.length);
 
-      // Convert to dBFS (avoid log of zero)
-      let dbfs = rms > 0 ? 20 * Math.log10(rms) : -100;
+      // Apply A-weighting approximation using frequency data
+      if (CONFIG.AUDIO.aWeightingEnabled) {
+        rms = this.applyAWeighting(rms, this.frequencyData);
+      }
 
-      // Clamp to reasonable range
+      // Convert to dBFS (reference = 1.0)
+      let dbfs = rms > 0.0001 ? 20 * Math.log10(rms) : -100;
       dbfs = Math.max(-100, Math.min(0, dbfs));
 
-      // Convert to dB SPL (simplified linear mapping)
-      // This maps dBFS (-100 to 0) to dB SPL (30 to 120)
-      let dbSPL = this.convertToSPL(dbfs);
+      // Convert to dB SPL using calibrated mapping
+      let rawSPL = this.convertToSPL(dbfs);
 
-      // Apply corrections
-      dbSPL += this.calibrationOffset;
+      // Add sample to buffer for SLOW time-weighting
+      this.sampleBuffer.push(rawSPL);
+      if (this.sampleBuffer.length > this.maxBufferSize) {
+        this.sampleBuffer.shift(); // Remove oldest sample
+      }
+
+      // Calculate time-weighted average (SLOW mode = 1 second)
+      let timeWeightedSPL = this.calculateTimeWeightedAverage();
+
+      // Apply calibration corrections
+      timeWeightedSPL += this.calibrationOffset;
       if (this.inPocketMode) {
-        dbSPL += this.pocketCorrection;
+        timeWeightedSPL += this.pocketCorrection;
       }
 
-      // CRITICAL: Clamp dbSPL to valid range BEFORE smoothing
-      dbSPL = Math.max(30, Math.min(120, dbSPL));
+      // Clamp to valid range
+      timeWeightedSPL = Math.max(30, Math.min(120, timeWeightedSPL));
 
-      // Validate dbSPL before using it
-      if (!isFinite(dbSPL) || isNaN(dbSPL)) {
-        console.error('Invalid dbSPL after corrections:', dbSPL);
-        dbSPL = 50; // Fallback to reasonable ambient level
+      // Validate
+      if (!isFinite(timeWeightedSPL) || isNaN(timeWeightedSPL)) {
+        console.error('Invalid timeWeightedSPL:', timeWeightedSPL);
+        timeWeightedSPL = 50;
       }
 
-      // Validate smoothedLevel before using it
+      // Apply exponential smoothing for display (reduces visual jitter)
       if (!isFinite(this.smoothedLevel) || isNaN(this.smoothedLevel)) {
-        console.warn('smoothedLevel was NaN, resetting to 50');
-        this.smoothedLevel = 50;
+        this.smoothedLevel = timeWeightedSPL;
+      } else {
+        this.smoothedLevel = (1 - this.displaySmoothing) * this.smoothedLevel +
+                            this.displaySmoothing * timeWeightedSPL;
       }
 
-      // Smooth for display with reduced smoothing factor for faster response
-      this.smoothedLevel = 0.7 * this.smoothedLevel + 0.3 * dbSPL;
-
-      // CRITICAL: Clamp smoothed level to prevent accumulation
+      // Clamp smoothed level
       this.smoothedLevel = Math.max(30, Math.min(120, this.smoothedLevel));
 
+      // Round for display
       this.currentLevel = Math.round(this.smoothedLevel);
 
-      // Final validation and clamping
-      if (!isFinite(this.currentLevel) || isNaN(this.currentLevel)) {
-        console.error('Invalid currentLevel calculated:', this.currentLevel, 'rms:', rms, 'dbfs:', dbfs, 'dbSPL:', dbSPL);
-        this.currentLevel = 50; // Fallback
-        this.smoothedLevel = 50; // Reset smoothed level too
-      }
-
-      // Extra safety clamp
-      this.currentLevel = Math.max(30, Math.min(120, this.currentLevel));
-
-      // Track peak
-      if (this.currentLevel > this.peakLevel) {
-        this.peakLevel = this.currentLevel;
+      // Track peak (use time-weighted, not instantaneous)
+      if (timeWeightedSPL > this.peakLevel) {
+        this.peakLevel = Math.round(timeWeightedSPL);
       }
 
       // Callback
@@ -176,82 +186,141 @@ class AudioEngine {
         this.onLevelUpdate({
           current: this.currentLevel,
           peak: this.peakLevel,
-          raw: dbSPL,
+          raw: rawSPL,
+          timeWeighted: timeWeightedSPL,
           dbfs: dbfs,
           rms: rms
         });
       }
 
-      // Log first few measurements to verify it's working
+      // Log first few measurements
       if (!this._logCount) this._logCount = 0;
       if (this._logCount < 5) {
-        console.log(`📊 Measurement ${this._logCount + 1}: ${this.currentLevel} dB (RMS: ${rms.toFixed(4)}, dBFS: ${dbfs.toFixed(1)}, SPL: ${dbSPL.toFixed(1)})`);
+        console.log(`📊 Measurement ${this._logCount + 1}: ${this.currentLevel} dB (Time-weighted: ${timeWeightedSPL.toFixed(1)}, Raw: ${rawSPL.toFixed(1)}, dBFS: ${dbfs.toFixed(1)})`);
         this._logCount++;
       }
 
     } catch (error) {
       console.error('❌ Error in measureLevel():', error);
-      this.currentLevel = 50; // Fallback to valid value
+      this.currentLevel = 50;
     }
   }
 
+  /**
+   * Calculate time-weighted average (SLOW mode per NIOSH standards)
+   * Uses exponential averaging over 1 second window
+   */
+  calculateTimeWeightedAverage() {
+    if (this.sampleBuffer.length === 0) return 50;
+
+    // Reject outliers if enabled
+    let samples = this.sampleBuffer;
+    if (CONFIG.AUDIO.outlierRejection && samples.length >= 3) {
+      samples = this.rejectOutliers(samples);
+    }
+
+    // Calculate linear average of dB values (energy averaging)
+    // Convert dB to linear, average, convert back to dB
+    const linearSum = samples.reduce((sum, db) => sum + Math.pow(10, db / 10), 0);
+    const linearAvg = linearSum / samples.length;
+    const dbAvg = 10 * Math.log10(linearAvg);
+
+    return dbAvg;
+  }
+
+  /**
+   * Reject statistical outliers (spikes) from sample buffer
+   */
+  rejectOutliers(samples) {
+    if (samples.length < 3) return samples;
+
+    const mean = samples.reduce((sum, val) => sum + val, 0) / samples.length;
+    const variance = samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / samples.length;
+    const stdDev = Math.sqrt(variance);
+
+    const threshold = CONFIG.AUDIO.outlierThreshold || 2.0;
+
+    // Keep values within threshold standard deviations
+    const filtered = samples.filter(val => Math.abs(val - mean) <= threshold * stdDev);
+
+    // If we rejected too many, just use original (might be legitimate loud noise)
+    return filtered.length >= samples.length * 0.5 ? filtered : samples;
+  }
+
+  /**
+   * Apply A-weighting approximation
+   * A-weighting emphasizes frequencies humans hear best (1-4kHz)
+   * and de-emphasizes low and very high frequencies
+   */
+  applyAWeighting(rms, frequencyData) {
+    if (!frequencyData || frequencyData.length === 0) return rms;
+
+    // Simple A-weighting approximation
+    // Emphasize mid-frequencies (1-4 kHz) where human hearing is most sensitive
+    // De-emphasize bass (<500 Hz) and treble (>8 kHz)
+
+    const sampleRate = this.audioContext.sampleRate;
+    const binCount = frequencyData.length;
+    const nyquist = sampleRate / 2;
+
+    let weightedSum = 0;
+    let totalWeight = 0;
+
+    for (let i = 0; i < binCount; i++) {
+      const frequency = (i / binCount) * nyquist;
+      const magnitude = frequencyData[i] / 255.0;
+
+      // A-weighting approximation (simplified)
+      let weight = 1.0;
+      if (frequency < 500) {
+        // Attenuate bass
+        weight = 0.3 + 0.7 * (frequency / 500);
+      } else if (frequency >= 500 && frequency <= 4000) {
+        // Emphasize mid-range (human hearing peak)
+        weight = 1.0;
+      } else if (frequency > 4000 && frequency <= 8000) {
+        // Slight de-emphasis of upper mids
+        weight = 1.0 - 0.3 * ((frequency - 4000) / 4000);
+      } else {
+        // Attenuate high frequencies
+        weight = 0.4;
+      }
+
+      weightedSum += magnitude * weight;
+      totalWeight += weight;
+    }
+
+    const weightedMagnitude = totalWeight > 0 ? weightedSum / totalWeight : 0;
+
+    // Blend weighted result with original RMS (70% weighted, 30% original)
+    return 0.7 * (rms * weightedMagnitude * 2) + 0.3 * rms;
+  }
+
   convertToSPL(dbfs) {
-    // Hardcoded fallback values in case CONFIG is not available
-    // Very conservative mapping to prevent over-reporting ambient noise
-    const FALLBACK_VALUES = {
-      minDBFS: -100,
-      maxDBFS: -50,  // Very conservative - only very loud sounds hit upper range
-      minSPL: 30,
-      maxSPL: 120    // Full range up to 120dB for very loud sounds
-    };
+    // Use NIOSH-calibrated conservative mapping
+    const minDBFS = CONFIG.AUDIO.minDBFS;
+    const maxDBFS = CONFIG.AUDIO.maxDBFS;
+    const minSPL = CONFIG.AUDIO.minSPL;
+    const maxSPL = CONFIG.AUDIO.maxSPL;
 
-    // Try to get values from CONFIG, fallback to hardcoded if not available
-    let minDBFS, maxDBFS, minSPL, maxSPL;
-
-    if (typeof CONFIG !== 'undefined' && CONFIG.AUDIO) {
-      minDBFS = CONFIG.AUDIO.minDBFS;
-      maxDBFS = CONFIG.AUDIO.maxDBFS;
-      minSPL = CONFIG.AUDIO.minSPL;
-      maxSPL = CONFIG.AUDIO.maxSPL;
-    } else {
-      console.error('⚠️ CONFIG.AUDIO not available, using fallback values');
-      minDBFS = FALLBACK_VALUES.minDBFS;
-      maxDBFS = FALLBACK_VALUES.maxDBFS;
-      minSPL = FALLBACK_VALUES.minSPL;
-      maxSPL = FALLBACK_VALUES.maxSPL;
-    }
-
-    // Validate that we have numbers
-    if (typeof minDBFS !== 'number' || typeof maxDBFS !== 'number' ||
-        typeof minSPL !== 'number' || typeof maxSPL !== 'number') {
-      console.error('❌ CONFIG.AUDIO values are not numbers:', { minDBFS, maxDBFS, minSPL, maxSPL });
-      // Use fallback
-      minDBFS = FALLBACK_VALUES.minDBFS;
-      maxDBFS = FALLBACK_VALUES.maxDBFS;
-      minSPL = FALLBACK_VALUES.minSPL;
-      maxSPL = FALLBACK_VALUES.maxSPL;
-    }
-
-    // Debug: Log config values on first call
+    // Debug log on first call
     if (!this._configLogged) {
-      console.log('🔧 CONFIG.AUDIO values:', { minDBFS, maxDBFS, minSPL, maxSPL });
+      console.log('🔧 dBFS→SPL Mapping:', { minDBFS, maxDBFS, minSPL, maxSPL });
       this._configLogged = true;
     }
 
+    // Linear interpolation with clamping
     const normalized = (dbfs - minDBFS) / (maxDBFS - minDBFS);
-    const spl = minSPL + normalized * (maxSPL - minSPL);
+    const clamped = Math.max(0, Math.min(1, normalized));
+    const spl = minSPL + clamped * (maxSPL - minSPL);
 
-    const result = Math.max(minSPL, Math.min(maxSPL, spl));
-
-    // Validate
-    if (!isFinite(result) || isNaN(result)) {
-      console.error('❌ convertToSPL returned NaN:', {
-        dbfs, minDBFS, maxDBFS, minSPL, maxSPL, normalized, spl, result
-      });
-      return 70; // Reasonable fallback for ambient sound
+    // Validate result
+    if (!isFinite(spl) || isNaN(spl)) {
+      console.error('❌ Invalid SPL conversion:', { dbfs, spl });
+      return 50; // Safe fallback
     }
 
-    return result;
+    return spl;
   }
 
   setCalibration(offset) {

@@ -172,20 +172,51 @@ class StorageEngine {
     }
   }
 
-  async getDailySummaries(startDate, endDate) {
-    const tx = this.db.transaction(['dailySummaries'], 'readonly');
-    const store = tx.objectStore('dailySummaries');
+  async getDailySummaries(daysBackOrStartDate, endDate = null) {
+    try {
+      if (!this.db) {
+        console.warn('Database not initialized');
+        return [];
+      }
 
-    return new Promise((resolve) => {
-      const request = store.getAll();
-      request.onsuccess = () => {
-        const results = request.result.filter(s => {
-          const date = new Date(s.date);
-          return date >= startDate && date <= endDate;
-        });
-        resolve(results);
-      };
-    });
+      const tx = this.db.transaction(['dailySummaries'], 'readonly');
+      const store = tx.objectStore('dailySummaries');
+
+      return new Promise((resolve, reject) => {
+        const request = store.getAll();
+        request.onsuccess = () => {
+          let results = request.result;
+
+          // If number provided, treat as days back from today
+          if (typeof daysBackOrStartDate === 'number') {
+            const daysBack = daysBackOrStartDate;
+            const endDate = new Date();
+            endDate.setHours(23, 59, 59, 999);
+            const startDate = new Date(endDate);
+            startDate.setDate(startDate.getDate() - daysBack);
+            startDate.setHours(0, 0, 0, 0);
+
+            results = results.filter(s => {
+              const date = new Date(s.date);
+              return date >= startDate && date <= endDate;
+            });
+          }
+          // If Date objects provided, use date range
+          else if (daysBackOrStartDate instanceof Date && endDate instanceof Date) {
+            results = results.filter(s => {
+              const date = new Date(s.date);
+              return date >= daysBackOrStartDate && date <= endDate;
+            });
+          }
+
+          resolve(results);
+        };
+        request.onerror = () => reject(request.error);
+      });
+    } catch (error) {
+      console.error('Error getting daily summaries:', error);
+      return [];
+    }
   }
 
   // Export all data

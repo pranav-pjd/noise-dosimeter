@@ -464,7 +464,7 @@ class NoiseDosimeterApp {
       const today = now.toISOString().split('T')[0];
       const currentHour = `${today} ${String(now.getHours()).padStart(2, '0')}:00`;
 
-      // Save daily summary
+      // Save daily summary (cumulative for the day)
       await storageEngine.saveDailySummary({
         date: today,
         dose: summary.dose,
@@ -473,12 +473,13 @@ class NoiseDosimeterApp {
         timestamp: now.toISOString()
       });
 
-      // Save hourly summary
+      // For hourly summary, we need to store cumulative data
+      // The chart will handle calculating per-hour contributions
       await storageEngine.saveHourlySummary({
-        id: currentHour, // Use hour as ID
+        id: currentHour,
         hour: currentHour,
-        datetime: currentHour, // For index
-        dose: summary.dose,
+        datetime: currentHour,
+        dose: summary.dose, // Store cumulative dose
         peakLevel: summary.peakLevel,
         exposureSeconds: summary.exposureSeconds,
         timestamp: now.toISOString()
@@ -520,9 +521,23 @@ class NoiseDosimeterApp {
         dosimetryEngine.peakLevel = todaySummary.peakLevel || 0;
         dosimetryEngine.exposureSeconds = todaySummary.exposureSeconds || 0;
 
+        // Update all UI elements with loaded data
         doseCircle.update(dosimetryEngine.dailyDose);
+
         const peakEl = document.getElementById('peakLevel');
-        if (peakEl) peakEl.textContent = `${dosimetryEngine.peakLevel} dB`;
+        if (peakEl) {
+          peakEl.textContent = `${dosimetryEngine.peakLevel} dB`;
+        }
+
+        const exposureTimeEl = document.getElementById('exposureTime');
+        if (exposureTimeEl) {
+          exposureTimeEl.textContent = DosimetryEngine.formatTime(dosimetryEngine.exposureSeconds);
+        }
+
+        const safeTimeEl = document.getElementById('safeTimeRemaining');
+        if (safeTimeEl) {
+          safeTimeEl.textContent = DosimetryEngine.formatTime(dosimetryEngine.getSafeTimeRemaining());
+        }
       }
 
       debugLog('App', 'Settings loaded successfully');
@@ -577,9 +592,17 @@ class NoiseDosimeterApp {
   resetDailyDose() {
     dosimetryEngine.reset();
     doseCircle.update(0);
-    document.getElementById('exposureTime').textContent = '0h 0m';
-    document.getElementById('safeTimeRemaining').textContent = '8h 0m';
-    document.getElementById('peakLevel').textContent = '-- dB';
+
+    const exposureTimeEl = document.getElementById('exposureTime');
+    const safeTimeEl = document.getElementById('safeTimeRemaining');
+    const peakLevelEl = document.getElementById('peakLevel');
+
+    if (exposureTimeEl) exposureTimeEl.textContent = '0h 0m';
+    if (safeTimeEl) {
+      safeTimeEl.textContent = DosimetryEngine.formatTime(dosimetryEngine.getSafeTimeRemaining());
+    }
+    if (peakLevelEl) peakLevelEl.textContent = '-- dB';
+
     this.saveCurrentData();
     this.showToast('🔄 Daily dose reset');
     debugLog('App', 'Daily dose auto-reset');

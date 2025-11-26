@@ -18,6 +18,7 @@ class HistoryChart {
     this.period = period;
     const data = await this.getData(period);
     this.draw(data);
+    this.updateStatistics(data, period);
   }
 
   async getData(period) {
@@ -29,13 +30,26 @@ class HistoryChart {
         const hourlyData = await storageEngine.getHourlySummaries(1);
         const today = new Date().toISOString().split('T')[0];
 
+        let previousCumulativeDose = 0;
+
         for (let i = 0; i < 24; i++) {
           const hourKey = `${today} ${String(i).padStart(2, '0')}:00`;
-          const hourData = hourlyData.find(h => h.hour.startsWith(hourKey));
+          const hourData = hourlyData.find(h => h.hour && h.hour.startsWith(hourKey));
+
+          // Calculate dose contribution for this specific hour
+          // by subtracting previous cumulative dose
+          const cumulativeDose = hourData ? (hourData.dose || 0) : previousCumulativeDose;
+          const hourlyContribution = Math.max(0, cumulativeDose - previousCumulativeDose);
+
           data.push({
             label: `${i}:00`,
-            value: hourData ? hourData.dose : 0
+            value: hourlyContribution
           });
+
+          // Update previous cumulative for next iteration
+          if (hourData) {
+            previousCumulativeDose = cumulativeDose;
+          }
         }
       } else if (period === 'week') {
         // Get daily data for past 7 days
@@ -188,6 +202,65 @@ class HistoryChart {
     this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
     this.ctx.lineWidth = 2;
     this.ctx.strokeRect(padding.left, padding.top, chartWidth, chartHeight);
+  }
+
+  updateStatistics(data, period) {
+    try {
+      // Filter out data with actual values (not zeros)
+      const nonZeroData = data.filter(d => d.value > 0);
+
+      if (nonZeroData.length === 0) {
+        // No data available
+        this.setStatDisplay('avgDose', '--%');
+        this.setStatDisplay('daysOverLimit', '--');
+        this.setStatDisplay('doseTrend', '--');
+        return;
+      }
+
+      // Calculate average dose
+      const total = nonZeroData.reduce((sum, d) => sum + d.value, 0);
+      const average = total / nonZeroData.length;
+      this.setStatDisplay('avgDose', `${average.toFixed(1)}%`);
+
+      // Calculate days/hours over 100%
+      const overLimit = data.filter(d => d.value >= 100).length;
+      const unit = period === 'day' ? 'hours' : 'days';
+      this.setStatDisplay('daysOverLimit', `${overLimit} ${unit}`);
+
+      // Calculate trend (compare first half vs second half)
+      const midpoint = Math.floor(nonZeroData.length / 2);
+      if (midpoint > 0) {
+        const firstHalf = nonZeroData.slice(0, midpoint);
+        const secondHalf = nonZeroData.slice(midpoint);
+
+        const firstAvg = firstHalf.reduce((sum, d) => sum + d.value, 0) / firstHalf.length;
+        const secondAvg = secondHalf.reduce((sum, d) => sum + d.value, 0) / secondHalf.length;
+
+        const difference = secondAvg - firstAvg;
+        let trendText = '';
+
+        if (Math.abs(difference) < 5) {
+          trendText = '→ Stable';
+        } else if (difference > 0) {
+          trendText = '↑ Increasing';
+        } else {
+          trendText = '↓ Decreasing';
+        }
+
+        this.setStatDisplay('doseTrend', trendText);
+      } else {
+        this.setStatDisplay('doseTrend', '--');
+      }
+    } catch (error) {
+      console.error('Error updating statistics:', error);
+    }
+  }
+
+  setStatDisplay(elementId, value) {
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.textContent = value;
+    }
   }
 }
 
