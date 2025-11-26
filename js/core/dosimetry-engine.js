@@ -81,20 +81,39 @@ class DosimetryEngine {
   }
 
   /**
-   * Get safe time remaining based on recent average level (not instantaneous)
-   * This prevents wild fluctuations from momentary noise spikes
+   * Get safe time remaining based on recent average noise level
+   * Uses NIOSH formula: T = 8 × 2^((85-L)/3)
+   * Smartly calculates based on current exposure patterns
    */
   getSafeTimeRemaining() {
+    // If no exposure yet, use current average to estimate
+    if (this.exposureSeconds === 0 || this.recentLevels.length === 0) {
+      // No data yet - assume safe for 8 hours at 85dB
+      return 8 * 3600; // 8 hours in seconds
+    }
+
     const remainingDose = Math.max(0, 100 - this.dailyDose);
 
-    // Use the rolling average level for stable calculation
-    // If average is below threshold, assume safe ambient level
-    const effectiveLevel = this.averageLevel >= this.threshold ?
-                          this.averageLevel :
-                          this.criterionLevel; // At criterion level = 8 hours remaining
+    // If already over 100% dose, no safe time remaining
+    if (remainingDose <= 0) {
+      return 0;
+    }
 
-    const allowableTime = this.getAllowableTime(effectiveLevel);
-    return (remainingDose / 100) * allowableTime;
+    // Use rolling average for smart calculation
+    // If quiet (below threshold), safe time is essentially unlimited
+    if (this.averageLevel < this.threshold) {
+      // Very quiet - return a large but reasonable number (24 hours)
+      return 24 * 3600; // 24 hours
+    }
+
+    // Calculate allowable time at current average noise level
+    const allowableTime = this.getAllowableTime(this.averageLevel);
+
+    // Calculate remaining time based on remaining dose percentage
+    // If you've used 50% dose, you have 50% of allowable time left
+    const remainingTime = (remainingDose / 100) * allowableTime;
+
+    return Math.max(0, remainingTime);
   }
 
   /**
@@ -152,13 +171,23 @@ class DosimetryEngine {
   }
 
   /**
-   * Format time
+   * Format time with hours, minutes, and seconds
    */
   static formatTime(seconds) {
     if (seconds === Infinity) return 'Unlimited';
+    if (seconds < 0) return '0h 0m 0s';
+
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${secs}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    } else {
+      return `${secs}s`;
+    }
   }
 }
 

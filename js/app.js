@@ -326,31 +326,44 @@ class NoiseDosimeterApp {
       audioEngine.start();
       console.log('✅ Audio monitoring started, callback set');
 
-      // Start dose calculation (1 Hz)
+      // Start dose calculation (1 Hz) - Updates metrics every second
       this.doseCalculationInterval = setInterval(() => {
         try {
           const currentLevel = audioEngine.currentLevel;
 
           if (isNaN(currentLevel) || currentLevel < 0) {
-            debugLog('App', 'Invalid audio level detected');
+            debugLog('App', 'Invalid audio level detected:', currentLevel);
             return;
           }
 
+          // Add exposure data
           dosimetryEngine.addExposure(currentLevel);
           const summary = dosimetryEngine.getSummary();
 
           // Update dose circle
           doseCircle.update(summary.dose);
 
-          // Update metrics with null checks (except safe time - updated separately)
+          // Update ALL metrics EVERY second
           const exposureTimeEl = document.getElementById('exposureTime');
           const peakLevelEl = document.getElementById('peakLevel');
+          const safeTimeEl = document.getElementById('safeTimeRemaining');
 
           if (exposureTimeEl) {
             exposureTimeEl.textContent = DosimetryEngine.formatTime(summary.exposureSeconds);
           }
+
           if (peakLevelEl) {
-            peakLevelEl.textContent = `${summary.peakLevel} dB`;
+            peakLevelEl.textContent = `${Math.round(summary.peakLevel)} dB`;
+          }
+
+          if (safeTimeEl) {
+            const safeTime = dosimetryEngine.getSafeTimeRemaining();
+            safeTimeEl.textContent = DosimetryEngine.formatTime(safeTime);
+          }
+
+          // Debug log every 5 seconds
+          if (summary.exposureSeconds % 5 === 0) {
+            console.log(`📊 Metrics Update: Exposure=${summary.exposureSeconds}s, Peak=${summary.peakLevel}dB, Dose=${summary.dose.toFixed(2)}%`);
           }
 
           // Check warnings
@@ -368,24 +381,14 @@ class NoiseDosimeterApp {
 
       }, CONFIG.SAMPLING.calcInterval);
 
-      // Update safe time remaining less frequently (every 15 seconds)
-      // This prevents wild fluctuations from momentary noise changes
-      this.safeTimeUpdateInterval = setInterval(() => {
-        try {
-          const safeTimeEl = document.getElementById('safeTimeRemaining');
-          if (safeTimeEl) {
-            safeTimeEl.textContent = DosimetryEngine.formatTime(dosimetryEngine.getSafeTimeRemaining());
-          }
-        } catch (err) {
-          console.error('Error updating safe time:', err);
-        }
-      }, 15000); // 15 seconds
-
-      // Do initial update immediately
+      // Do initial metric updates immediately
+      const exposureTimeEl = document.getElementById('exposureTime');
       const safeTimeEl = document.getElementById('safeTimeRemaining');
-      if (safeTimeEl) {
-        safeTimeEl.textContent = DosimetryEngine.formatTime(dosimetryEngine.getSafeTimeRemaining());
-      }
+      const peakLevelEl = document.getElementById('peakLevel');
+
+      if (exposureTimeEl) exposureTimeEl.textContent = '0s';
+      if (safeTimeEl) safeTimeEl.textContent = DosimetryEngine.formatTime(dosimetryEngine.getSafeTimeRemaining());
+      if (peakLevelEl) peakLevelEl.textContent = '0 dB';
 
       // Update state
       this.isMonitoring = true;
@@ -435,11 +438,6 @@ class NoiseDosimeterApp {
     if (this.doseCalculationInterval) {
       clearInterval(this.doseCalculationInterval);
       this.doseCalculationInterval = null;
-    }
-
-    if (this.safeTimeUpdateInterval) {
-      clearInterval(this.safeTimeUpdateInterval);
-      this.safeTimeUpdateInterval = null;
     }
 
     this.isMonitoring = false;
