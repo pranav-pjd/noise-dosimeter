@@ -59,22 +59,25 @@ class DosimetryEngine {
     const sum = this.recentLevels.reduce((a, b) => a + b, 0);
     this.averageLevel = sum / this.recentLevels.length;
 
-    // Only add dose if above threshold
-    if (decibelLevel < this.threshold) return;
-
-    const allowableTime = this.getAllowableTime(decibelLevel);
-    const doseContribution = (1 / allowableTime) * 100; // 1 second exposure
-
-    this.dailyDose += doseContribution;
+    // ALWAYS increment exposure time (regardless of threshold)
     this.exposureSeconds += 1;
 
+    // ALWAYS update peak level (regardless of threshold)
     if (decibelLevel > this.peakLevel) {
       this.peakLevel = decibelLevel;
     }
 
+    // ALWAYS update last sample time
     this.lastSampleTime = Date.now();
 
-    debugLog('Dose', `Level: ${decibelLevel}dB, Avg: ${this.averageLevel.toFixed(1)}dB, Dose: ${this.dailyDose.toFixed(2)}%`);
+    // Only add dose contribution if above threshold
+    if (decibelLevel >= this.threshold) {
+      const allowableTime = this.getAllowableTime(decibelLevel);
+      const doseContribution = (1 / allowableTime) * 100; // 1 second exposure
+      this.dailyDose += doseContribution;
+    }
+
+    debugLog('Dose', `Level: ${decibelLevel}dB, Avg: ${this.averageLevel.toFixed(1)}dB, Dose: ${this.dailyDose.toFixed(2)}%, Exposure: ${this.exposureSeconds}s`);
   }
 
   /**

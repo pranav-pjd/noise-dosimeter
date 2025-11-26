@@ -26,9 +26,11 @@ class HistoryChart {
 
     try {
       if (period === 'day') {
-        // Get hourly data for today
-        const hourlyData = await storageEngine.getHourlySummaries(1);
+        // Get hourly data for TODAY (daysBack = 0)
+        const hourlyData = await storageEngine.getHourlySummaries(0);
         const today = new Date().toISOString().split('T')[0];
+
+        debugLog('Charts', `Loading day chart for ${today}, found ${hourlyData.length} hourly records`);
 
         let previousCumulativeDose = 0;
 

@@ -112,18 +112,23 @@ class StorageEngine {
     return store.put(summary);
   }
 
-  async getHourlySummaries(daysBack = 1) {
+  async getHourlySummaries(daysBack = 0) {
     try {
       if (!this.db) {
         console.warn('Database not initialized');
         return [];
       }
 
-      // Calculate date range
+      // Calculate date range - default to TODAY (daysBack = 0)
       const now = new Date();
-      const startDate = new Date(now);
-      startDate.setDate(startDate.getDate() - daysBack);
-      const dateStr = startDate.toISOString().split('T')[0];
+      const targetDate = new Date(now);
+
+      // daysBack = 0 means today, daysBack = 1 means yesterday, etc.
+      if (daysBack > 0) {
+        targetDate.setDate(targetDate.getDate() - daysBack);
+      }
+
+      const dateStr = targetDate.toISOString().split('T')[0];
 
       const tx = this.db.transaction(['hourlySummaries'], 'readonly');
       const store = tx.objectStore('hourlySummaries');
@@ -134,6 +139,7 @@ class StorageEngine {
           const results = request.result.filter(s =>
             s.datetime && s.datetime.startsWith(dateStr)
           );
+          debugLog('Storage', `Found ${results.length} hourly summaries for ${dateStr}`);
           resolve(results);
         };
         request.onerror = () => reject(request.error);

@@ -356,8 +356,8 @@ class NoiseDosimeterApp {
           // Check warnings
           warnings.check(currentLevel, summary.dose);
 
-          // Save periodically (every minute)
-          if (summary.exposureSeconds % 60 === 0) {
+          // Save periodically (every 10 seconds for more responsive updates)
+          if (summary.exposureSeconds % 10 === 0 && summary.exposureSeconds > 0) {
             this.saveCurrentData().catch(err => {
               debugLog('App', 'Auto-save failed:', err);
             });
@@ -403,6 +403,13 @@ class NoiseDosimeterApp {
       if (btnIcon) btnIcon.textContent = '⏸';
       if (statusDot) statusDot.classList.add('monitoring');
       if (statusText) statusText.textContent = 'Monitoring active';
+
+      // Do an immediate save to initialize data
+      setTimeout(() => {
+        this.saveCurrentData().catch(err => {
+          debugLog('App', 'Initial save failed:', err);
+        });
+      }, 2000); // Save after 2 seconds
 
       haptics.vibrate('medium');
       this.showToast('🎤 Monitoring started');
@@ -486,6 +493,14 @@ class NoiseDosimeterApp {
       });
 
       debugLog('App', 'Data saved (daily + hourly)');
+
+      // Auto-refresh chart to show new data
+      if (historyChart) {
+        // Get current active period
+        const activeTab = document.querySelector('.tab-btn.active');
+        const period = activeTab ? activeTab.dataset.period : 'day';
+        historyChart.update(period);
+      }
     } catch (error) {
       console.error('Save failed:', error);
     }
