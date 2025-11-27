@@ -83,15 +83,9 @@ class DosimetryEngine {
   /**
    * Get safe time remaining based on recent average noise level
    * Uses NIOSH formula: T = 8 × 2^((85-L)/3)
-   * Smartly calculates based on current exposure patterns
+   * Max 8 hours, decreases based on noise exposure
    */
   getSafeTimeRemaining() {
-    // If no exposure yet, use current average to estimate
-    if (this.exposureSeconds === 0 || this.recentLevels.length === 0) {
-      // No data yet - assume safe for 8 hours at 85dB
-      return 8 * 3600; // 8 hours in seconds
-    }
-
     const remainingDose = Math.max(0, 100 - this.dailyDose);
 
     // If already over 100% dose, no safe time remaining
@@ -99,21 +93,21 @@ class DosimetryEngine {
       return 0;
     }
 
-    // Use rolling average for smart calculation
-    // If quiet (below threshold), safe time is essentially unlimited
-    if (this.averageLevel < this.threshold) {
-      // Very quiet - return a large but reasonable number (24 hours)
-      return 24 * 3600; // 24 hours
-    }
+    // Use rolling average for calculation, or default to 85dB if no data yet
+    const effectiveLevel = this.recentLevels.length > 0 ? this.averageLevel : 85;
 
-    // Calculate allowable time at current average noise level
-    const allowableTime = this.getAllowableTime(this.averageLevel);
+    // Calculate allowable time at current average noise level using NIOSH formula
+    // T = 8 × 2^((85-L)/3)
+    const allowableTime = this.getAllowableTime(effectiveLevel);
 
     // Calculate remaining time based on remaining dose percentage
     // If you've used 50% dose, you have 50% of allowable time left
     const remainingTime = (remainingDose / 100) * allowableTime;
 
-    return Math.max(0, remainingTime);
+    // Cap at 8 hours maximum
+    const cappedTime = Math.min(remainingTime, 8 * 3600);
+
+    return Math.max(0, cappedTime);
   }
 
   /**

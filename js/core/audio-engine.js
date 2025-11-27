@@ -28,10 +28,10 @@ class AudioEngine {
 
     // NIOSH SLOW mode time-weighting (1 second averaging)
     this.sampleBuffer = [];
-    this.maxBufferSize = 10; // 10 samples at 10Hz = 1 second
+    this.maxBufferSize = 5; // 5 samples at 10Hz = 0.5 second (more responsive)
 
     // Exponential moving average for display smoothing
-    this.displaySmoothing = 0.3; // Lower = smoother, Higher = more responsive
+    this.displaySmoothing = 0.5; // Increased for faster response (0-1, higher = faster)
   }
 
   async initialize() {

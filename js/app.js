@@ -11,6 +11,7 @@ class NoiseDosimeterApp {
     this.pocketDetectionEnabled = true;
     this.pocketCorrection = CONFIG.POCKET.defaultCorrection;
     this.resetTime = '00:00';
+    this.wakeLock = null; // For keeping screen on during monitoring
   }
 
   async init() {
@@ -414,6 +415,9 @@ class NoiseDosimeterApp {
         });
       }, 2000); // Save after 2 seconds
 
+      // Request wake lock to keep monitoring in background
+      await this.requestWakeLock();
+
       haptics.vibrate('medium');
       this.showToast('🎤 Monitoring started');
 
@@ -441,6 +445,9 @@ class NoiseDosimeterApp {
     }
 
     this.isMonitoring = false;
+
+    // Release wake lock
+    this.releaseWakeLock();
 
     // Save final data
     this.saveCurrentData();
@@ -784,6 +791,49 @@ class NoiseDosimeterApp {
     document.getElementById('dismissInstallBtn').addEventListener('click', () => {
       banner.remove();
     });
+  }
+
+  /**
+   * Request wake lock to keep screen on and allow background monitoring
+   */
+  async requestWakeLock() {
+    try {
+      if ('wakeLock' in navigator) {
+        this.wakeLock = await navigator.wakeLock.request('screen');
+        console.log('🔒 Wake Lock activated - screen will stay on');
+
+        // Re-acquire wake lock if it's released (e.g., screen turns off temporarily)
+        this.wakeLock.addEventListener('release', () => {
+          console.log('🔓 Wake Lock released');
+          // Re-request if still monitoring
+          if (this.isMonitoring) {
+            this.requestWakeLock();
+          }
+        });
+
+        this.showToast('Screen will stay on during monitoring');
+      } else {
+        console.warn('Wake Lock API not supported');
+      }
+    } catch (error) {
+      console.error('Failed to acquire wake lock:', error);
+    }
+  }
+
+  /**
+   * Release wake lock when monitoring stops
+   */
+  releaseWakeLock() {
+    if (this.wakeLock) {
+      this.wakeLock.release()
+        .then(() => {
+          console.log('🔓 Wake Lock released');
+          this.wakeLock = null;
+        })
+        .catch(error => {
+          console.error('Failed to release wake lock:', error);
+        });
+    }
   }
 }
 
