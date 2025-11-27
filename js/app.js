@@ -204,10 +204,20 @@ class NoiseDosimeterApp {
 
     // Data management
     const exportBtn = document.getElementById('exportDataBtn');
+    const importBtn = document.getElementById('importDataBtn');
+    const importFileInput = document.getElementById('importFileInput');
     const clearBtn = document.getElementById('clearDataBtn');
 
     if (exportBtn) {
       exportBtn.addEventListener('click', () => this.exportData());
+    }
+
+    if (importBtn) {
+      importBtn.addEventListener('click', () => this.importData());
+    }
+
+    if (importFileInput) {
+      importFileInput.addEventListener('change', (e) => this.handleImportFile(e));
     }
 
     if (clearBtn) {
@@ -639,21 +649,107 @@ class NoiseDosimeterApp {
   async exportData() {
     try {
       const data = await storageEngine.exportData();
-      const dataStr = JSON.stringify(data, null, 2);
-      const blob = new Blob([dataStr], { type: 'application/json' });
+
+      // Convert to CSV format
+      let csv = 'Type,Date/Time,Dose (%),Peak Level (dB),Exposure Time (seconds),Timestamp\n';
+
+      // Add daily summaries
+      if (data.data.daily && data.data.daily.length > 0) {
+        data.data.daily.forEach(record => {
+          csv += `Daily,${record.date},${record.dose || 0},${record.peakLevel || 0},${record.exposureSeconds || 0},${record.timestamp}\n`;
+        });
+      }
+
+      // Add hourly summaries
+      if (data.data.hourly && data.data.hourly.length > 0) {
+        data.data.hourly.forEach(record => {
+          csv += `Hourly,${record.hour || record.datetime},${record.dose || 0},${record.peakLevel || 0},${record.exposureSeconds || 0},${record.timestamp}\n`;
+        });
+      }
+
+      const blob = new Blob([csv], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
 
       const link = document.createElement('a');
       link.href = url;
-      link.download = `noise-dosimeter-export-${new Date().toISOString().split('T')[0]}.json`;
+      link.download = `noise-dosimeter-export-${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
 
       URL.revokeObjectURL(url);
-      this.showToast('📥 Data exported successfully');
+      this.showToast('📥 Data exported to CSV');
       haptics.vibrate('medium');
     } catch (error) {
       console.error('Export failed:', error);
       this.showToast('❌ Export failed');
+    }
+  }
+
+  async importData() {
+    const fileInput = document.getElementById('importFileInput');
+    if (!fileInput) return;
+
+    fileInput.click();
+  }
+
+  async handleImportFile(event) {
+    try {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      if (!file.name.endsWith('.csv')) {
+        this.showToast('❌ Please select a CSV file');
+        return;
+      }
+
+      const text = await file.text();
+      const lines = text.split('\n');
+
+      // Skip header line
+      const dataLines = lines.slice(1).filter(line => line.trim());
+
+      let importedDaily = 0;
+      let importedHourly = 0;
+
+      for (const line of dataLines) {
+        const [type, dateTime, dose, peakLevel, exposureSeconds, timestamp] = line.split(',');
+
+        if (type === 'Daily') {
+          await storageEngine.saveDailySummary({
+            date: dateTime,
+            dose: parseFloat(dose) || 0,
+            peakLevel: parseFloat(peakLevel) || 0,
+            exposureSeconds: parseInt(exposureSeconds) || 0,
+            timestamp: timestamp || new Date().toISOString()
+          });
+          importedDaily++;
+        } else if (type === 'Hourly') {
+          await storageEngine.saveHourlySummary({
+            id: dateTime,
+            hour: dateTime,
+            datetime: dateTime,
+            dose: parseFloat(dose) || 0,
+            peakLevel: parseFloat(peakLevel) || 0,
+            exposureSeconds: parseInt(exposureSeconds) || 0,
+            timestamp: timestamp || new Date().toISOString()
+          });
+          importedHourly++;
+        }
+      }
+
+      // Refresh the chart
+      historyChart.update('day');
+
+      // Reload today's data
+      await this.loadSettings();
+
+      this.showToast(`📤 Imported ${importedDaily} daily + ${importedHourly} hourly records`);
+      haptics.vibrate('medium');
+
+      // Clear the file input
+      event.target.value = '';
+    } catch (error) {
+      console.error('Import failed:', error);
+      this.showToast('❌ Import failed - check CSV format');
     }
   }
 
