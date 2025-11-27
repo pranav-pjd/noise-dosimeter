@@ -485,6 +485,24 @@ class NoiseDosimeterApp {
       const now = new Date();
       const today = now.toISOString().split('T')[0];
       const currentHour = `${today} ${String(now.getHours()).padStart(2, '0')}:00`;
+      const currentLevel = audioEngine.currentLevel;
+      const safeTimeRemaining = dosimetryEngine.getSafeTimeRemaining();
+
+      // Save detailed exposure record (every 10 seconds)
+      await storageEngine.saveExposureRecord({
+        timestamp: now.getTime(),
+        date: today,
+        datetime: now.toISOString(),
+        currentLevel: currentLevel,
+        peakLevel: summary.peakLevel,
+        dose: summary.dose,
+        exposureSeconds: summary.exposureSeconds,
+        safeTimeRemaining: safeTimeRemaining,
+        averageLevel: dosimetryEngine.averageLevel,
+        inPocketMode: audioEngine.inPocketMode,
+        pocketCorrection: audioEngine.inPocketMode ? audioEngine.pocketCorrection : 0,
+        calibrationOffset: audioEngine.calibrationOffset
+      });
 
       // Save daily summary (cumulative for the day)
       await storageEngine.saveDailySummary({
@@ -507,7 +525,7 @@ class NoiseDosimeterApp {
         timestamp: now.toISOString()
       });
 
-      debugLog('App', 'Data saved (daily + hourly)');
+      debugLog('App', 'Data saved (detailed record + daily + hourly)');
 
       // Auto-refresh chart to show new data
       if (historyChart) {
@@ -650,20 +668,27 @@ class NoiseDosimeterApp {
     try {
       const data = await storageEngine.exportData();
 
-      // Convert to CSV format
-      let csv = 'Type,Date/Time,Dose (%),Peak Level (dB),Exposure Time (seconds),Timestamp\n';
+      // Create comprehensive CSV with all detailed records
+      let csv = 'Record Type,Date,Date/Time,Current Level (dB),Peak Level (dB),Dose (%),Exposure Time (s),Safe Time Remaining (s),Average Level (dB),In Pocket Mode,Pocket Correction (dB),Calibration Offset (dB),Timestamp\n';
+
+      // Add detailed exposure records (every 10 seconds)
+      if (data.data.exposures && data.data.exposures.length > 0) {
+        data.data.exposures.forEach(record => {
+          csv += `Detailed,${record.date || ''},${record.datetime || ''},${record.currentLevel || 0},${record.peakLevel || 0},${record.dose || 0},${record.exposureSeconds || 0},${record.safeTimeRemaining || 0},${record.averageLevel || 0},${record.inPocketMode ? 'Yes' : 'No'},${record.pocketCorrection || 0},${record.calibrationOffset || 0},${record.datetime || ''}\n`;
+        });
+      }
 
       // Add daily summaries
       if (data.data.daily && data.data.daily.length > 0) {
         data.data.daily.forEach(record => {
-          csv += `Daily,${record.date},${record.dose || 0},${record.peakLevel || 0},${record.exposureSeconds || 0},${record.timestamp}\n`;
+          csv += `Daily Summary,${record.date},,,,${record.peakLevel || 0},${record.dose || 0},${record.exposureSeconds || 0},,,,,,${record.timestamp}\n`;
         });
       }
 
       // Add hourly summaries
       if (data.data.hourly && data.data.hourly.length > 0) {
         data.data.hourly.forEach(record => {
-          csv += `Hourly,${record.hour || record.datetime},${record.dose || 0},${record.peakLevel || 0},${record.exposureSeconds || 0},${record.timestamp}\n`;
+          csv += `Hourly Summary,${record.hour || record.datetime},,,,${record.peakLevel || 0},${record.dose || 0},${record.exposureSeconds || 0},,,,,,${record.timestamp}\n`;
         });
       }
 
@@ -672,11 +697,13 @@ class NoiseDosimeterApp {
 
       const link = document.createElement('a');
       link.href = url;
-      link.download = `noise-dosimeter-export-${new Date().toISOString().split('T')[0]}.csv`;
+      link.download = `noise-dosimeter-detailed-export-${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
 
       URL.revokeObjectURL(url);
-      this.showToast('📥 Data exported to CSV');
+
+      const recordCount = (data.data.exposures?.length || 0) + (data.data.daily?.length || 0) + (data.data.hourly?.length || 0);
+      this.showToast(`📥 Exported ${recordCount} records to CSV`);
       haptics.vibrate('medium');
     } catch (error) {
       console.error('Export failed:', error);
@@ -707,30 +734,49 @@ class NoiseDosimeterApp {
       // Skip header line
       const dataLines = lines.slice(1).filter(line => line.trim());
 
+      let importedDetailed = 0;
       let importedDaily = 0;
       let importedHourly = 0;
 
       for (const line of dataLines) {
-        const [type, dateTime, dose, peakLevel, exposureSeconds, timestamp] = line.split(',');
+        const fields = line.split(',');
+        const type = fields[0];
 
-        if (type === 'Daily') {
+        if (type === 'Detailed') {
+          // Format: Record Type,Date,Date/Time,Current Level,Peak Level,Dose,Exposure Time,Safe Time Remaining,Average Level,In Pocket Mode,Pocket Correction,Calibration Offset,Timestamp
+          await storageEngine.saveExposureRecord({
+            timestamp: new Date(fields[2]).getTime(),
+            date: fields[1],
+            datetime: fields[2],
+            currentLevel: parseFloat(fields[3]) || 0,
+            peakLevel: parseFloat(fields[4]) || 0,
+            dose: parseFloat(fields[5]) || 0,
+            exposureSeconds: parseInt(fields[6]) || 0,
+            safeTimeRemaining: parseInt(fields[7]) || 0,
+            averageLevel: parseFloat(fields[8]) || 0,
+            inPocketMode: fields[9] === 'Yes',
+            pocketCorrection: parseFloat(fields[10]) || 0,
+            calibrationOffset: parseFloat(fields[11]) || 0
+          });
+          importedDetailed++;
+        } else if (type === 'Daily Summary') {
           await storageEngine.saveDailySummary({
-            date: dateTime,
-            dose: parseFloat(dose) || 0,
-            peakLevel: parseFloat(peakLevel) || 0,
-            exposureSeconds: parseInt(exposureSeconds) || 0,
-            timestamp: timestamp || new Date().toISOString()
+            date: fields[1],
+            dose: parseFloat(fields[6]) || 0,
+            peakLevel: parseFloat(fields[5]) || 0,
+            exposureSeconds: parseInt(fields[7]) || 0,
+            timestamp: fields[12] || new Date().toISOString()
           });
           importedDaily++;
-        } else if (type === 'Hourly') {
+        } else if (type === 'Hourly Summary') {
           await storageEngine.saveHourlySummary({
-            id: dateTime,
-            hour: dateTime,
-            datetime: dateTime,
-            dose: parseFloat(dose) || 0,
-            peakLevel: parseFloat(peakLevel) || 0,
-            exposureSeconds: parseInt(exposureSeconds) || 0,
-            timestamp: timestamp || new Date().toISOString()
+            id: fields[1],
+            hour: fields[1],
+            datetime: fields[1],
+            dose: parseFloat(fields[6]) || 0,
+            peakLevel: parseFloat(fields[5]) || 0,
+            exposureSeconds: parseInt(fields[7]) || 0,
+            timestamp: fields[12] || new Date().toISOString()
           });
           importedHourly++;
         }
@@ -742,7 +788,7 @@ class NoiseDosimeterApp {
       // Reload today's data
       await this.loadSettings();
 
-      this.showToast(`📤 Imported ${importedDaily} daily + ${importedHourly} hourly records`);
+      this.showToast(`📤 Imported ${importedDetailed} detailed + ${importedDaily} daily + ${importedHourly} hourly records`);
       haptics.vibrate('medium');
 
       // Clear the file input
